@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useMemo } from "react";
 import * as THREE from "three";
 import { buildRoadGeometry } from "@/lib/track";
 
@@ -9,14 +8,11 @@ export function Road({
   curve,
   width,
   segments,
-  scrollProgress,
 }: {
   curve: THREE.CatmullRomCurve3;
   width: number;
   segments: number;
-  scrollProgress: React.RefObject<number>;
 }) {
-  const materialRef = useRef<THREE.ShaderMaterial>(null);
   const geometry = useMemo(
     () => buildRoadGeometry(curve, width, segments),
     [curve, width, segments],
@@ -24,26 +20,17 @@ export function Road({
 
   const uniforms = useMemo(
     () => ({
-      uTime: { value: 0 },
-      uScroll: { value: 0 },
-      uAsphalt: { value: new THREE.Color("#0d0d11") },
-      uEdge: { value: new THREE.Color("#ff6b35") },
-      uDash: { value: new THREE.Color("#f2f2f2") },
+      uAsphalt: { value: new THREE.Color("#111116") },
+      uKerbRed: { value: new THREE.Color("#d10a0a") },
+      uKerbWhite: { value: new THREE.Color("#eef0f2") },
+      uLine: { value: new THREE.Color("#e8e8ec") },
     }),
     [],
   );
 
-  useFrame((_, delta) => {
-    const mat = materialRef.current;
-    if (!mat) return;
-    mat.uniforms.uTime.value += delta;
-    mat.uniforms.uScroll.value = scrollProgress.current ?? 0;
-  });
-
   return (
     <mesh geometry={geometry}>
       <shaderMaterial
-        ref={materialRef}
         uniforms={uniforms}
         vertexShader={`
           varying vec2 vUv;
@@ -54,23 +41,30 @@ export function Road({
         `}
         fragmentShader={`
           varying vec2 vUv;
-          uniform float uTime;
-          uniform float uScroll;
           uniform vec3 uAsphalt;
-          uniform vec3 uEdge;
-          uniform vec3 uDash;
+          uniform vec3 uKerbRed;
+          uniform vec3 uKerbWhite;
+          uniform vec3 uLine;
 
           void main() {
-            vec3 col = uAsphalt;
+            // Asfalto: leve gradiente a lo ancho para que no sea plano.
+            float shade = 0.85 + 0.15 * (1.0 - abs(vUv.x - 0.5) * 2.0);
+            vec3 col = uAsphalt * shade;
 
-            // Bordes brillantes a ambos lados.
-            float edge = smoothstep(0.045, 0.02, vUv.x) + smoothstep(0.955, 0.98, vUv.x);
-            col = mix(col, uEdge, clamp(edge, 0.0, 1.0));
+            // Distancia al borde más cercano (0 en el borde, 0.5 en el centro).
+            float edgeDist = min(vUv.x, 1.0 - vUv.x);
 
-            // Línea central discontinua que corre hacia la cámara.
-            float center = smoothstep(0.03, 0.012, abs(vUv.x - 0.5));
-            float dash = step(0.5, fract(vUv.y * 1.2 - uScroll * 8.0 - uTime * 0.6));
-            col = mix(col, uDash, center * dash * 0.9);
+            // Piano (kerb) rojo/blanco a rayas: la firma visual de un circuito F1.
+            float kerbW = 0.07;
+            float kerb = step(edgeDist, kerbW);
+            float stripe = step(0.5, fract(vUv.y * 2.5));
+            vec3 kerbCol = mix(uKerbRed, uKerbWhite, stripe);
+            col = mix(col, kerbCol, kerb);
+
+            // Línea blanca fina de pista justo por dentro del kerb.
+            float line = smoothstep(kerbW + 0.018, kerbW + 0.008, edgeDist)
+                       * step(kerbW, edgeDist);
+            col = mix(col, uLine, line * 0.8);
 
             gl_FragColor = vec4(col, 1.0);
           }

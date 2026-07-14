@@ -73,36 +73,106 @@ export function buildRoadGeometry(
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const smooth = (e: number) => e * e * (3 - 2 * e);
 
-/**
- * Mapea el progreso de scroll (0..1) a la posición en la curva (0..1), con una
- * "meseta" alrededor de cada estación: al llegar a un proyecto, t casi no avanza
- * → la cámara frena y se queda un rato, y después retoma la marcha.
- */
-export function makeProgressToT(count: number) {
-  const anchors: Array<[number, number]> = [[0, 0]];
-  for (let i = 0; i < count; i++) {
-    const center = (i + 0.5) / count;
-    const band = 0.5 / count;
-    anchors.push([center - band * 0.9, center - 0.02]); // acercándose
-    anchors.push([center - band * 0.28, center]); // llega
-    anchors.push([center + band * 0.28, center]); // frena/estaciona (t constante)
-    anchors.push([center + band * 0.9, center + 0.02]); // retoma
-  }
-  anchors.push([1, 1]);
+export interface TrackMapping {
+  // Progreso de scroll (0..1) → posición en la curva (0..1).
+  t: (p: number) => number;
+  // Velocidad normalizada 0..1 (0 = frenado en un proyecto, 1 = crucero).
+  speedNorm: (p: number) => number;
+}
 
-  return (p: number): number => {
-    const x = clamp01(p);
-    for (let i = 0; i < anchors.length - 1; i++) {
-      const [p0, t0] = anchors[i];
-      const [p1, t1] = anchors[i + 1];
-      if (x >= p0 && x <= p1) {
-        if (p1 === p0) return t1;
-        const local = smooth((x - p0) / (p1 - p0));
-        return t0 + (t1 - t0) * local;
-      }
+const V_MIN = 0.16;
+const V_MAX = 1;
+const SAMPLES = 256;
+
+/**
+ * Mapea el scroll a la posición en la pista integrando un PERFIL DE VELOCIDAD
+ * suave: la velocidad baja de forma gradual (gaussiana) al acercarse a cada
+ * proyecto y sube al alejarse. Al integrar y normalizar, t(p) queda monótona y
+ * sin discontinuidades → la cámara frena y acelera como un auto, sin saltos.
+ */
+export function makeProgressToT(count: number): TrackMapping {
+  const stations = stationCenters(count);
+  const sigma = (0.5 / count) * 0.7;
+
+  const slowness = (p: number) => {
+    let s = 0;
+    for (const c of stations) {
+      const d = (p - c) / sigma;
+      s = Math.max(s, Math.exp(-0.5 * d * d));
     }
-    return 1;
+    return s;
   };
+  const speed = (p: number) => V_MAX - (V_MAX - V_MIN) * slowness(p);
+
+  const cumulative = new Float64Array(SAMPLES + 1);
+  const dp = 1 / SAMPLES;
+  for (let i = 1; i <= SAMPLES; i++) {
+    cumulative[i] = cumulative[i - 1] + speed((i - 0.5) * dp) * dp;
+  }
+  const total = cumulative[SAMPLES];
+
+  return {
+    t: (p: number) => {
+      const f = clamp01(p) * SAMPLES;
+      const i = Math.min(SAMPLES - 1, Math.floor(f));
+      const frac = f - i;
+      const c = cumulative[i] + (cumulative[i + 1] - cumulative[i]) * frac;
+      return c / total;
+    },
+    speedNorm: (p: number) => (speed(clamp01(p)) - V_MIN) / (V_MAX - V_MIN),
+  };
+}
+
+// Posición (en t de curva) donde la cámara frena para cada proyecto. Los gates
+// se colocan acá para que coincidan exactamente con el frenado y el panel.
+export function stationTrackTs(count: number): number[] {
+  const mapping = makeProgressToT(count);
+  return stationCenters(count).map((c) => mapping.t(c));
+}
+
+/**
+ * Muro/barrera vertical siguiendo la curva a un costado. `side` = -1 (izq) / +1
+ * (der). uv.x recorre el largo, uv.y va de la base (0) al tope (1).
+ */
+export function buildBarrierGeometry(
+  curve: THREE.CatmullRomCurve3,
+  side: number,
+  offset: number,
+  height: number,
+  segments: number,
+): THREE.BufferGeometry {
+  const up = new THREE.Vector3(0, 1, 0);
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const lengthU = curve.getLength() / 6;
+
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const p = curve.getPointAt(t);
+    const tangent = curve.getTangentAt(t);
+    const right = new THREE.Vector3().crossVectors(tangent, up).normalize();
+    const base = p.clone().addScaledVector(right, side * offset);
+
+    positions.push(base.x, base.y, base.z, base.x, base.y + height, base.z);
+    const u = t * lengthU;
+    uvs.push(u, 0, u, 1);
+  }
+
+  for (let i = 0; i < segments; i++) {
+    const a = i * 2;
+    const b = i * 2 + 1;
+    const c = i * 2 + 2;
+    const d = i * 2 + 3;
+    indices.push(a, b, d, a, d, c);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 /**

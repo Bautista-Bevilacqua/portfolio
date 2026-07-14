@@ -137,25 +137,31 @@ para SEO/accesibilidad.
 
 Arquitectura:
 - `src/lib/track.ts` — pura lógica, sin React. `createTrackCurve()` (CatmullRomCurve3 que
-  avanza en -Z con curvas), `buildRoadGeometry()` (cinta de asfalto con uv para el shader),
-  `makeProgressToT()` (mapea scroll 0..1 → t de la curva con MESETAS alrededor de cada
-  estación = el frenado), `stationActivation()` (0..1 por proyecto, para el fade del panel).
+  avanza en -Z con curvas), `buildRoadGeometry()` (cinta de asfalto con uv), `buildBarrierGeometry()`
+  (muro vertical siguiendo la curva). `makeProgressToT()` mapea scroll 0..1 → t INTEGRANDO
+  un perfil de velocidad SUAVE (gaussiana: la velocidad baja gradual cerca de cada proyecto,
+  sube en las rectas) → t(p) monótona y sin saltos. Devuelve `{ t, speedNorm }`.
+  `stationTrackTs()` da el t donde la cámara frena (ahí se colocan los gates). `stationActivation()`
+  (0..1 por proyecto, para el fade del panel).
 - `src/components/sections/ProjectsDrive.tsx` — sección ALTA (`height: n*135vh+40`) con un
   hijo `sticky top-0 h-screen`. Un listener de scroll (throttle con rAF) calcula el
-  progreso desde `getBoundingClientRect()` de la sección y actualiza cámara (vía ref) y
-  paneles (vía refs, sin re-render de React). Los paneles HTML se hacen fade-in al frenar.
-- `src/components/three/TrackScene.tsx` — Canvas + `CameraRig` (primera persona: posición
-  = punto de la curva + altura de ojos, mira hacia la tangente → las curvas se sienten).
-  Incluye `ResizeKick` (mismo workaround del quirk de ResizeObserver).
-- `Road.tsx` (shader: asfalto + bordes + línea central discontinua que corre), `Gates.tsx`
-  (pórticos checkpoint por estación), `TrackMarkers.tsx` (postes reflectores laterales
-  con InstancedMesh, dan sensación de velocidad; se ocultan en mobile).
+  progreso desde `getBoundingClientRect()` de la sección y actualiza paneles (vía refs, sin
+  re-render de React). Los paneles HTML se hacen fade-in al frenar.
+- `src/components/three/TrackScene.tsx` — Canvas + `CameraRig` (primera persona). Para que
+  se sienta FLUIDO: la cámara persigue su t objetivo con `THREE.MathUtils.damp` (independiente
+  del frame-rate), mira hacia la tangente, se inclina (bank) sutil en curvas, y usa FOV
+  dinámico (más rápido → más abierto). Incluye `Backdrop` (cielo degradado) y `ResizeKick`
+  (workaround del quirk de ResizeObserver).
+- `Road.tsx` (shader: asfalto + KERBS rojo/blanco de F1 + línea blanca de pista), `Barriers.tsx`
+  (muros continuos a los costados con baranda emisiva y bloques de color que pasan volando =
+  sensación de velocidad; shader), `Gates.tsx` (gantry de largada por estación, con barra de
+  luz emisiva). Nota: `TrackMarkers.tsx` (postes) fue reemplazado por `Barriers.tsx`.
 
-Verificación hecha: tsc + lint limpios; ambos canvas (hero + pista) inicializan; sin
-errores de shader/consola; la lógica scroll→t→paneles validada numéricamente (velocidad
-~0 en cada estación, ~9.5 entre estaciones; activación de paneles pico 1.0 justo en cada
-proyecto). Falta: prueba de manejo real del usuario para ajustar el FEEL (velocidad,
-cuánto frena, agresividad de curvas, fov).
+Verificación hecha: tsc + lint limpios; ambos canvas inicializan; los 4 shaders compilan sin
+error (probados contra un contexto WebGL real); perfil de velocidad validado numéricamente
+(suave, ratio ~3.9 entre crucero y frenado, gates alineados con el frenado, sin picos de
+jerk). Falta: prueba de manejo real del usuario para ajustar el FEEL (velocidad, cuánto
+frena, agresividad de curvas, fov, intensidad del bank).
 
 ## Limitación de verificación del entorno (importante)
 
