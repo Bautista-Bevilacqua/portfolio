@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { Road } from "@/components/three/Road";
 import { Gates } from "@/components/three/Gates";
 import { Barriers } from "@/components/three/Barriers";
+import { FinishLine } from "@/components/three/FinishLine";
 import {
   createTrackCurve,
   makeProgressToT,
@@ -93,6 +94,7 @@ function TrackWorld({
       <Road curve={curve} width={ROAD_WIDTH} segments={segments} />
       <Barriers curve={curve} segments={segments} />
       <Gates curve={curve} count={count} />
+      <FinishLine curve={curve} />
     </>
   );
 }

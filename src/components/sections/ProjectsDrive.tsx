@@ -13,6 +13,7 @@ export function ProjectsDrive() {
   const scrollProgress = useRef(0);
   const panelRefs = useRef<(HTMLDivElement | null)[]>([]);
   const hintRef = useRef<HTMLDivElement>(null);
+  const finishHintRef = useRef<HTMLDivElement>(null);
   const counterRef = useRef<HTMLSpanElement>(null);
 
   const [isCompact, setIsCompact] = useState(
@@ -56,6 +57,9 @@ export function ProjectsDrive() {
       }
 
       if (hintRef.current) hintRef.current.style.opacity = String(clamp01(1 - p * 14));
+      if (finishHintRef.current) {
+        finishHintRef.current.style.opacity = String(clamp01((p - 0.88) / 0.08));
+      }
       if (counterRef.current) {
         counterRef.current.textContent = `${String(activeIndex + 1).padStart(2, "0")} / ${String(count).padStart(2, "0")}`;
       }
@@ -108,6 +112,14 @@ export function ProjectsDrive() {
             className="absolute bottom-10 left-1/2 -translate-x-1/2 text-center font-mono text-sm text-muted"
           >
             Scrolleá para recorrer la pista ↓
+          </div>
+
+          <div
+            ref={finishHintRef}
+            style={{ opacity: 0 }}
+            className="absolute bottom-10 left-1/2 -translate-x-1/2 text-center font-mono text-sm text-accent"
+          >
+            🏁 Cruzaste la meta — seguí bajando para ver los resultados ↓
           </div>
 
           {projects.map((project, i) => (
